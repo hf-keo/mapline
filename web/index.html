@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mapline Web</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      background: #0b0c10;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      padding: 1rem;
+      font-weight: 600;
+      text-align: center;
+      background: #111722;
+      letter-spacing: 0.5px;
+    }
+    #map {
+      height: 55vh;
+      width: 100%;
+    }
+    .panel {
+      padding: 1rem;
+      background: #0d1117;
+      display: grid;
+      gap: 0.75rem;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.95rem;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: #2dd4bf;
+    }
+    .color-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid #1f2937;
+    }
+    button {
+      padding: 0.7rem 1rem;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:active {
+      transform: translateY(1px);
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    small { color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <header>Mapline – Web</header>
+  <div id="map" aria-label="Map"></div>
+  <div class="panel">
+    <div class="row" aria-label="Heading controls">
+      <label for="heading">Heading (°)
+        <input id="heading" type="range" min="0" max="360" step="1" value="0" />
+      </label>
+      <span id="heading-value">0°</span>
+    </div>
+    <div class="row" aria-label="Length controls">
+      <label for="length">Line length (m)
+        <input id="length" type="range" min="50" max="5000" step="10" value="500" />
+      </label>
+      <span id="length-value">500 m</span>
+    </div>
+    <div class="row">
+      <label for="color">Line color</label>
+      <input id="color" type="color" value="#00bcd4" />
+      <div id="swatch" class="color-swatch" style="background:#00bcd4"></div>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="use-orientation" checked /> Use device orientation</label>
+      <label><input type="checkbox" id="follow" checked /> Follow my location</label>
+    </div>
+    <button id="refresh">Refresh line</button>
+    <small>Uses OpenStreetMap tiles. Location and orientation stay on device; no data leaves your browser.</small>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    const map = L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let userMarker = L.marker([0, 0]);
+    let guideLine = L.polyline([], { color: '#00bcd4', weight: 4 }).addTo(map);
+    userMarker.addTo(map);
+
+    let currentPosition = null;
+    let currentHeading = 0;
+
+    const headingInput = document.getElementById('heading');
+    const headingValue = document.getElementById('heading-value');
+    const lengthInput = document.getElementById('length');
+    const lengthValue = document.getElementById('length-value');
+    const colorInput = document.getElementById('color');
+    const swatch = document.getElementById('swatch');
+    const followToggle = document.getElementById('follow');
+    const orientationToggle = document.getElementById('use-orientation');
+    const refreshButton = document.getElementById('refresh');
+
+    map.setView([0, 0], 15);
+
+    function toRad(deg) { return deg * Math.PI / 180; }
+    function toDeg(rad) { return rad * 180 / Math.PI; }
+    function destinationPoint(start, headingDeg, distanceMeters) {
+      const R = 6371000;
+      const δ = distanceMeters / R;
+      const θ = toRad(headingDeg);
+      const φ1 = toRad(start.lat);
+      const λ1 = toRad(start.lng);
+
+      const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ));
+      const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
+      return L.latLng(toDeg(φ2), toDeg(λ2));
+    }
+
+    function updateLine() {
+      if (!currentPosition) return;
+      const heading = currentHeading;
+      const length = parseFloat(lengthInput.value);
+      const end = destinationPoint(currentPosition, heading, length);
+      guideLine.setLatLngs([currentPosition, end]);
+      guideLine.setStyle({ color: colorInput.value });
+      userMarker.setLatLng(currentPosition);
+      if (followToggle.checked) {
+        map.panTo(currentPosition, { animate: true });
+      }
+    }
+
+    function onPosition(pos) {
+      currentPosition = L.latLng(pos.coords.latitude, pos.coords.longitude);
+      if (!map._loaded) {
+        map.setView(currentPosition, 17);
+      }
+      updateLine();
+    }
+
+    function onOrientation(event) {
+      if (!orientationToggle.checked) return;
+      const heading = event.webkitCompassHeading || event.alpha;
+      if (heading == null) return;
+      currentHeading = heading;
+      headingInput.value = heading.toFixed(0);
+      headingValue.textContent = `${headingInput.value}°`;
+      updateLine();
+    }
+
+    headingInput.addEventListener('input', () => {
+      currentHeading = parseFloat(headingInput.value);
+      headingValue.textContent = `${headingInput.value}°`;
+      updateLine();
+    });
+
+    lengthInput.addEventListener('input', () => {
+      lengthValue.textContent = `${lengthInput.value} m`;
+      updateLine();
+    });
+
+    colorInput.addEventListener('input', () => {
+      swatch.style.background = colorInput.value;
+      updateLine();
+    });
+
+    orientationToggle.addEventListener('change', () => {
+      if (orientationToggle.checked) {
+        requestOrientation();
+      }
+    });
+
+    refreshButton.addEventListener('click', updateLine);
+
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(onPosition, console.error, {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 10000,
+      });
+    }
+
+    function requestOrientation() {
+      if (typeof DeviceOrientationEvent === 'undefined') return;
+      if (DeviceOrientationEvent.requestPermission) {
+        DeviceOrientationEvent.requestPermission().then(result => {
+          if (result === 'granted') {
+            window.addEventListener('deviceorientation', onOrientation, true);
+          }
+        }).catch(console.error);
+      } else {
+        window.addEventListener('deviceorientationabsolute', onOrientation, true);
+        window.addEventListener('deviceorientation', onOrientation, true);
+      }
+    }
+
+    requestOrientation();
+  </script>
+</body>
+</html>
