@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Mapline</string>
+    <string name="line_length_label">Line length (m)</string>
+    <string name="heading_label">Heading (°)</string>
+    <string name="lock_location">Follow my location</string>
+    <string name="refresh_line">Refresh line</string>
+</resources>
